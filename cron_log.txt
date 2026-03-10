@@ -1,0 +1,7 @@
+/opt/anaconda3/envs/bank_dash/bin/python: can't open file '/Users/gtmagrwl/Downloads/akashvani/akashvani.py': [Errno 2] No such file or directory
+  File "/Users/gtmagrwl/Library/CloudStorage/GoogleDrive-gautam.4garwal@gmail.com/My Drive/Python Scripts/akashvani.py", line 66
+    items=rss_items
+          ^^^^^^^^^
+SyntaxError: invalid syntax. Perhaps you forgot a comma?
+Unstaged changes after reset:
+M	feed.xml
