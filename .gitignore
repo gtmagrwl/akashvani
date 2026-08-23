@@ -1,0 +1,7 @@
+_archive/
+__pycache__/
+.DS_Store
+cron_log.txt
+.fetch_state
+finish_compaction.command
+.transcript_anchor
