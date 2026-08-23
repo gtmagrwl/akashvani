@@ -38,11 +38,14 @@ HEADERS = {
 }
 
 # Headers used when hitting the bulletin detail / transcript endpoints
+# Plain browser-style GET headers. These pages are ordinary HTML now; sending
+# X-Requested-With / a form Content-Type (left over from the old ajax POST) makes
+# the request look like the blocked ajax traffic and it comes back unusable.
 DETAIL_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0",
-    "Referer":    "https://www.newsonair.gov.in/bulletins-detail-archive/",
-    "X-Requested-With": "XMLHttpRequest",
-    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-GB,en;q=0.9,hi;q=0.8",
+    "Referer": "https://newsonair.gov.in/",
 }
 
 PODCAST_NS = "https://podcastindex.org/namespace/1.0"
@@ -274,8 +277,14 @@ def _save_anchor(n, dt):
 def _detail_exists(n):
     try:
         r = requests.get(TRANSCRIPT_BASE.format(n=n), headers=DETAIL_HEADERS, timeout=20)
-        return r.status_code == 200 and "entry-content" in r.text
-    except Exception:
+        ok = r.status_code == 200 and "entry-content" in r.text
+        if not ok:
+            log(f"  detail slug {n}: HTTP {r.status_code}, "
+                f"entry-content={'yes' if 'entry-content' in r.text else 'no'} "
+                f"({len(r.text)} bytes)")
+        return ok
+    except Exception as e:
+        log(f"  detail slug {n}: request failed: {e}")
         return False
 
 
@@ -285,16 +294,30 @@ def refresh_anchor(newest_date):
     it to the newest bulletin date. Detail pages carry no date of their own, so
     this anchor is the only way to line slugs up with dates.
     """
-    n, _ = _load_anchor()
+    n, anchor_date = _load_anchor()
     if n is None:
         log("No transcript anchor stored - skipping transcripts this run.")
         return None, None
+    if not _detail_exists(n):
+        log(f"Transcript anchor slug {n} is unreachable - leaving the anchor "
+            f"untouched and skipping transcripts this run.")
+        return None, None
+
     highest = n
     for candidate in range(n + 1, n + 16):
         if _detail_exists(candidate):
             highest = candidate
         else:
             break
+
+    if highest == n and newest_date.date() > anchor_date.date():
+        # Newer bulletins exist but no newer slug was found: the probe is not
+        # working. Re-pinning the old slug to a new date would misdate every
+        # transcript from here on, so bail out instead.
+        log(f"Transcript slug did not advance past {n} despite a newer bulletin "
+            f"({newest_date:%d %B %Y}) - not re-anchoring.")
+        return None, None
+
     _save_anchor(highest, newest_date)
     log(f"Transcript anchor: slug {highest} = {newest_date:%d %B %Y}")
     return highest, newest_date
@@ -314,6 +337,9 @@ def fetch_bulletin_detail_url(target_date: datetime) -> str | None:
         r = requests.get(url, headers=DETAIL_HEADERS, timeout=20)
         if r.status_code == 200 and "entry-content" in r.text:
             return url
+        log(f"  {target_date:%d %B %Y} -> slug {candidate}: HTTP {r.status_code}, "
+            f"entry-content={'yes' if 'entry-content' in r.text else 'no'} "
+            f"({len(r.text)} bytes)")
     except Exception as e:
         log(f"ERROR checking detail URL for {target_date:%d %B %Y}: {e}")
     return None
@@ -323,7 +349,7 @@ def fetch_transcript(url: str) -> str:
     """Fetch and return the clean Hindi text from a bulletin detail page."""
     r = requests.get(
         url,
-        headers={**DETAIL_HEADERS, "Content-Type": "text/html"},
+        headers=DETAIL_HEADERS,
         timeout=20,
     )
     r.raise_for_status()
